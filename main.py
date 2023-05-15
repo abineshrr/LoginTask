@@ -1,5 +1,5 @@
 from datetime import timedelta, datetime, date
-from typing import Annotated
+from typing_extensions import Annotated
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi import FastAPI, Depends, HTTPException, Form
