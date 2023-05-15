@@ -4,7 +4,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
 from fastapi import FastAPI, Depends, HTTPException, Form
 from pydantic import BaseModel, EmailStr, validator
-from sqlalchemy.orm import Session
 from starlette import status
 import models
 from models import UserInput
