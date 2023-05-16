@@ -85,13 +85,13 @@ class UserRequest(BaseModel):
     password: str = Form(...)
     confirm_password: str = Form(...)
 
-    @validator('username')
-    def username_must_be_valid(cls, value):
-        if not (4 <= len(value) <= 20):
-            raise ValueError('Username must be between 4 and 20 characters long')
-        if not value.isalnum():
-            raise ValueError('Username must contain only alphanumeric characters')
-        return value
+    # @validator('username')
+    # def username_must_be_valid(cls, value):
+    #     if not (4 <= len(value) <= 20):
+    #         raise ValueError('Username must be between 4 and 20 characters long')
+    #     if not value.isalnum():
+    #         raise ValueError('Username must contain only alphanumeric characters')
+    #     return value
 
     @validator('password')
     def password_must_be_strong(cls, value):
