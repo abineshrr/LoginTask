@@ -1,7 +1,6 @@
 from database import Base
 from sqlalchemy import Column, Integer, String, Date
 
-
 class UserInput(Base):
     __tablename__ = 'userinput'
 
