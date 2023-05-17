@@ -77,7 +77,7 @@ user_dependency = Annotated[dict, Depends(get_current_user)]
 class UserRequest(BaseModel):
     first_name: str = Form(...)
     last_name: str = Form(...)
-    age: int
+    age: int = Form(...)
     dob: date = Form(...)
     gender: str = Form(...)
     username: str = Form(..., min_length=4, max_length=20, regex="^[a-zA-Z0-9_-]+$")

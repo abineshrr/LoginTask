@@ -10,6 +10,6 @@ class UserInput(Base):
     age = Column(Integer)
     dob = Column(Date)
     gender = Column(String)
-    username = Column(String)
-    email = Column(String)
+    username = Column(String, unique=True)
+    email = Column(String, unique=True)
     password = Column(String)
