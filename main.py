@@ -77,11 +77,13 @@ user_dependency = Annotated[dict, Depends(get_current_user)]
 class UserRequest(BaseModel):
     first_name: str = Form(...)
     last_name: str = Form(...)
+    reg_no: str = Form(...)
     age: int = Form(...)
     dob: date = Form(...)
     gender: str = Form(...)
     username: str = Form(..., min_length=4, max_length=20, regex="^[a-zA-Z0-9_-]+$")
     email: EmailStr = Form(...)
+    phonenumber: str = Form(...)
     password: str = Form(...)
     confirm_password: str = Form(...)
 
@@ -158,11 +160,13 @@ async def register_user(db: db_dependency,
     user_data = UserInput(
         first_name=user_request.first_name,
         last_name=user_request.last_name,
+        reg_no=user_request.reg_no,
         age=user_request.age,
         dob=user_request.dob,
         gender=user_request.gender,
         username=user_request.username,
         email=user_request.email,
+        phonenumber=user_request.phonenumber,
         password=bcrypt_context.hash(user_request.password)
     )
     db.add(user_data)
