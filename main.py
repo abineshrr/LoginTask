@@ -40,8 +40,8 @@ def get_db():
         db.close()
 
 
-def authenticate_user(username: str, password: str, db):
-    user = db.query(UserInput).filter((UserInput.username == username) | (UserInput.email == username)).first()
+def authenticate_user(username_or_email: str, password: str, db):
+    user = db.query(UserInput).filter((UserInput.username == username_or_email) | (UserInput.email == username_or_email)).first()
     if not user:
         return False
     if not bcrypt_context.verify(password, user.password):
@@ -77,7 +77,7 @@ user_dependency = Annotated[dict, Depends(get_current_user)]
 class UserRequest(BaseModel):
     first_name: str = Form(...)
     last_name: str = Form(...)
-    age: int = Form(..., ge=15)
+    age: int
     dob: date = Form(...)
     gender: str = Form(...)
     username: str = Form(..., min_length=4, max_length=20, regex="^[a-zA-Z0-9_-]+$")
@@ -110,6 +110,10 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+
+class LoginRequest(BaseModel):
+    username_or_email: str
+    password: str
 
 class ChangePassword(BaseModel):
     username_or_email: str = Form(...)
@@ -168,9 +172,9 @@ async def register_user(db: db_dependency,
 
 
 @app.post("/login", response_model=Token)
-async def login_user(form_data: Annotated[OAuth2PasswordRequestForm, Depends()],
+async def login_user(login_request: LoginRequest,
                      db: db_dependency):
-    user = authenticate_user(form_data.username, form_data.password, db)
+    user = authenticate_user(login_request.username_or_email, login_request.password, db)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail='Could not validate user.')
