@@ -119,8 +119,8 @@ class LoginRequest(BaseModel):
 
 class ChangePassword(BaseModel):
     username_or_email: str = Form(...)
-    current_password: str = Form(...)
     new_password: str = Form(...)
+    confirm_password: str = Form(...)
 
     @validator('username_or_email')
     def username_or_email_must_be_valid(cls, value):
@@ -192,8 +192,8 @@ async def change_user_password(change_password: ChangePassword, db: db_dependenc
                                       (UserInput.username == change_password.username_or_email)).first()
     if not user:
         raise HTTPException(status_code=404, detail='User not found')
-    if not bcrypt_context.verify(change_password.current_password, user.password):
-        raise HTTPException(status_code=400, detail='Incorrect password')
+    if change_password.new_password != change_password.confirm_password:
+        raise HTTPException(status_code=400, detail="New password and confirm password should be same")
     new_password_hashed = bcrypt_context.hash(change_password.new_password)
     user.password = new_password_hashed
     db.commit()
