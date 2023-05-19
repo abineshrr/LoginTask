@@ -13,5 +13,5 @@ class UserInput(Base):
     gender = Column(String)
     username = Column(String, unique=True)
     email = Column(String, unique=True)
-    phonenumber = Column(String, unique=True)
+    phonenumber = Column(String)
     password = Column(String)
