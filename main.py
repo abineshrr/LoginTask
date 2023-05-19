@@ -87,14 +87,6 @@ class UserRequest(BaseModel):
     password: str = Form(...)
     confirm_password: str = Form(...)
 
-    # @validator('username')
-    # def username_must_be_valid(cls, value):
-    #     if not (4 <= len(value) <= 20):
-    #         raise ValueError('Username must be between 4 and 20 characters long')
-    #     if not value.isalnum():
-    #         raise ValueError('Username must contain only alphanumeric characters')
-    #     return value
-
     @validator('password')
     def password_must_be_strong(cls, value):
         if not (8 <= len(value) <= 50):
@@ -107,11 +99,9 @@ class UserRequest(BaseModel):
             raise ValueError('Password must contain at least one digit')
         return value
 
-
 class Token(BaseModel):
     access_token: str
     token_type: str
-
 
 class LoginRequest(BaseModel):
     username_or_email: str
@@ -128,11 +118,8 @@ class ChangePassword(BaseModel):
             email = EmailStr(value)
             return email
         else:
-            # value is a username
             if not (4 <= len(value) <= 20):
                 raise ValueError('Username must be between 4 and 20 characters long')
-            # if not value.isalnum():
-            #     raise ValueError('Username must contain only alphanumeric characters')
             return value
 
     @validator('new_password')
@@ -203,3 +190,11 @@ async def change_user_password(change_password: ChangePassword, db: db_dependenc
 @app.get("/get_all_users")
 async def read_all(db: db_dependency):
     return db.query(UserInput).all()
+
+
+@app.delete('/delete_user/{user_id}')
+async def delete_user(user_id:int, db:db_dependency):
+    user = db.query(UserInput).filter(UserInput.id == user_id).first()
+    db.delete(user)
+    db.commit()
+    return {'message': 'User deleted successfully'}
