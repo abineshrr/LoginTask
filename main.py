@@ -81,7 +81,7 @@ class UserRequest(BaseModel):
     age: int = Form(...)
     dob: date = Form(...)
     gender: str = Form(...)
-    username: str = Form(..., min_length=4, max_length=20, regex="^[a-zA-Z0-9_-]+$")
+    username: str = Form(..., min_length=4, max_length=20)
     email: EmailStr = Form(...)
     phonenumber: str = Form(...)
     password: str = Form(...)
@@ -91,12 +91,6 @@ class UserRequest(BaseModel):
     def password_must_be_strong(cls, value):
         if not (8 <= len(value) <= 50):
             raise ValueError('Password must be between 8 and 50 characters long')
-        if not any(c.isupper() for c in value):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not any(c.islower() for c in value):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in value):
-            raise ValueError('Password must contain at least one digit')
         return value
 
 class Token(BaseModel):
@@ -126,12 +120,6 @@ class ChangePassword(BaseModel):
     def password_must_be_strong(cls, value):
         if not (8 <= len(value) <= 50):
             raise ValueError('Password must be between 8 and 50 characters long')
-        if not any(c.isupper() for c in value):
-            raise ValueError('Password must contain at least one uppercase letter')
-        if not any(c.islower() for c in value):
-            raise ValueError('Password must contain at least one lowercase letter')
-        if not any(c.isdigit() for c in value):
-            raise ValueError('Password must contain at least one digit')
         return value
 
 
