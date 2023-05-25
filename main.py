@@ -23,6 +23,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+session = SessionLocal()
+
 SECRET_KEY = '12nhd45et674r567tfg657yh8jdg75wcj32ki9865d656tf536kjl87tf654'
 ALGORITHM = 'HS256'
 
@@ -158,7 +160,7 @@ async def login_user(login_request: LoginRequest,
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail='Could not validate user.')
     token = create_access_token(user.username, user.id, timedelta(minutes=20))
-    return {'access_token': token, 'token_type': 'bearer', "message": "Login successful!"}
+    return {'access_token': token, 'token_type': 'bearer', 'message': 'Login successful!'}
 
 
 @app.put('/change_user_password')
@@ -186,3 +188,13 @@ async def delete_user(user_id:int, db:db_dependency):
     db.delete(user)
     db.commit()
     return {'message': 'User deleted successfully'}
+
+
+users = session.query(UserInput).all()
+user_list = [{"id": user.id, "first name": user.first_name, "last name": user.last_name, "reg no": user.reg_no, "age": user.age, "dob": user.dob, "gender": user.gender, "username": user.username, "email": user.email, "phone number": user.phonenumber} for user in users]
+
+@app.get("/users_list/")
+def get_users(page: int, per_page: int):
+    start_index = (page - 1) * per_page
+    end_index = start_index + per_page
+    return user_list[start_index:end_index]
