@@ -126,7 +126,7 @@ class UserRequest(BaseModel):
     email: EmailStr = Form(...)
     phonenumber: str = Form(...)
     password: str = Form(...)
-    confirm_password: str = Form(...)
+    #confirm_password: str = Form(...)
 
     @validator('password')
     def password_must_be_strong(cls, value):
@@ -173,8 +173,8 @@ async def register_user(db: db_dependency,
         raise HTTPException(status_code=400, detail="Username already exists")
     if db.query(UserInput).filter(UserInput.email == user_request.email).first():
         raise HTTPException(status_code=400, detail="Email already exists")
-    if user_request.password != user_request.confirm_password:
-        raise HTTPException(status_code=400, detail="Password and confirm password should be same")
+    #if user_request.password != user_request.confirm_password:
+     #   raise HTTPException(status_code=400, detail="Password and confirm password should be same")
     user_data = UserInput(
         first_name=user_request.first_name,
         last_name=user_request.last_name,
