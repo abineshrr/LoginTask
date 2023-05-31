@@ -68,10 +68,9 @@ def encrypt_password(passwrd: str):
 #     return decrypted_data
 
 def decrypt_data(encrypted_data: str):
-    encryption_key = b'22eeab4fe24a3d7fb40874b3a40c8271'
+    encryption_key = base64.urlsafe_b64decode(b'Q4bOALstbrq0hdvukj5fdz8xR9V-J-w_yWuGYX8vCuU=')
     cipher_suite = Fernet(encryption_key)
     decrypted_data = cipher_suite.decrypt(encrypted_data.encode()).decode()
-
     return decrypted_data
 
 def authenticate_user(username_or_email: str, password: str, db):
@@ -275,5 +274,5 @@ def ennrypt_password(password: str):
 
 @app.get('/decrpyt')
 def deecrypt_password(password: str):
-    decrypted_password = decrypt_password(password)
+    decrypted_password = decrypt_data(password)
     return decrypted_password
