@@ -15,6 +15,7 @@ from jose import jwt, JWTError
 
 from Crypto.Util.Padding import unpad, pad
 from Crypto.Cipher import AES
+from cryptography.fernet import Fernet
 import base64
 
 app = FastAPI()
@@ -58,12 +59,19 @@ def encrypt_password(passwrd: str):
     encoded_password = base64.b64encode(encrypted_password).decode()
     return encoded_password
 
+# def decrypt_data(encrypted_data: str):
+#     encryption_key = "22eeab4fe24a3d7fb40874b3a40c8271"
+#     encrypted_data = base64.b64decode(encrypted_data)
+#     cipher = AES.new(encryption_key.encode(), AES.MODE_ECB)
+#     decrypted_data = cipher.decrypt(encrypted_data)
+#     decrypted_data = unpad(decrypted_data, AES.block_size).decode()
+#     return decrypted_data
+
 def decrypt_data(encrypted_data: str):
-    encryption_key = "22eeab4fe24a3d7fb40874b3a40c8271"
-    encrypted_data = base64.b64decode(encrypted_data)
-    cipher = AES.new(encryption_key.encode(), AES.MODE_ECB)
-    decrypted_data = cipher.decrypt(encrypted_data)
-    decrypted_data = unpad(decrypted_data, AES.block_size).decode()
+    encryption_key = b'22eeab4fe24a3d7fb40874b3a40c8271'
+    cipher_suite = Fernet(encryption_key)
+    decrypted_data = cipher_suite.decrypt(encrypted_data.encode()).decode()
+
     return decrypted_data
 
 def authenticate_user(username_or_email: str, password: str, db):
