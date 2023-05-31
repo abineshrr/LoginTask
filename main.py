@@ -1,5 +1,6 @@
 from datetime import timedelta, datetime, date
 from typing_extensions import Annotated
+from uuid import uuid4
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import FastAPI, Depends, HTTPException, Form
@@ -12,11 +13,9 @@ from database import engine, SessionLocal
 from passlib.context import CryptContext
 from jose import jwt, JWTError
 
-from cryptography.fernet import Fernet
-from uuid import uuid4
-
-key = Fernet.generate_key()
-cipher_suite = Fernet(key)
+from Crypto.Util.Padding import unpad, pad
+from Crypto.Cipher import AES
+import base64
 
 app = FastAPI()
 
@@ -47,13 +46,34 @@ def get_db():
     finally:
         db.close()
 
+def encrypt_password(passwrd: str):
+    encryption_key = '22eeab4fe24a3d7fb40874b3a40c8271'
+    password = passwrd.encode()
+
+    # Pad the password to make it a multiple of the block size
+    padded_password = pad(password, AES.block_size)
+
+    cipher = AES.new(encryption_key.encode(), AES.MODE_ECB)
+    encrypted_password = cipher.encrypt(padded_password)
+    encoded_password = base64.b64encode(encrypted_password).decode()
+    return encoded_password
+
+def decrypt_data(encrypted_data: str):
+    encryption_key = "22eeab4fe24a3d7fb40874b3a40c8271"
+    encrypted_data = base64.b64decode(encrypted_data)
+    cipher = AES.new(encryption_key.encode(), AES.MODE_ECB)
+    decrypted_data = cipher.decrypt(encrypted_data)
+    decrypted_data = unpad(decrypted_data, AES.block_size).decode()
+    return decrypted_data
 
 def authenticate_user(username_or_email: str, password: str, db):
     user = db.query(UserInput).filter((UserInput.username == username_or_email) | (UserInput.email == username_or_email)).first()
     if not user:
-        return False
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail='Could not validate user.')
     if not bcrypt_context.verify(password, user.password):
-        return False
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail='Incorrect password.')
     return user
 
 
@@ -169,7 +189,9 @@ async def register_user(db: db_dependency,
 @app.post("/login", response_model=Token)
 async def login_user(login_request: LoginRequest,
                      db: db_dependency):
-    user = authenticate_user(login_request.username_or_email, login_request.password, db)
+    decryptedpassword = decrypt_password(login_request.password)
+    decryptedusername = decrypt_password(login_request.username_or_email)
+    user = authenticate_user(decryptedusername, decryptedpassword, db)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail='Could not validate user.')
@@ -238,20 +260,12 @@ def get_users(page: int, per_page: int):
     end_index = start_index + per_page
     return user_list[start_index:end_index]
 
+@app.get('/encrpyt')
+def ennrypt_password(password: str):
+    encrypted_password = encrypt_password(password)
+    return encrypted_password
 
-def encrypt_password(password: str):
-    encrypted_password = cipher_suite.encrypt(password.encode())
-    return encrypted_password.decode()
-
-def decrypt_password(password: str):
-    decrypted_password = cipher_suite.decrypt(password.encode())
-    return decrypted_password.decode()
-
-@app.get('/encrypt/{plain_password}')
-def passwrd(plain_password: str):
-    return encrypt_password(plain_password)
-
-@app.get('/decrypt')
-def password(plain_password: str):
-    encrypted_paswrd = encrypt_password(plain_password)
-    return decrypt_password(encrypted_paswrd)
+@app.get('/decrpyt')
+def deecrypt_password(password: str):
+    decrypted_password = decrypt_password(password)
+    return decrypted_password
