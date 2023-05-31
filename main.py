@@ -189,8 +189,8 @@ async def register_user(db: db_dependency,
 @app.post("/login", response_model=Token)
 async def login_user(login_request: LoginRequest,
                      db: db_dependency):
-    decryptedpassword = decrypt_password(login_request.password)
-    decryptedusername = decrypt_password(login_request.username_or_email)
+    decryptedpassword = decrypt_data(login_request.password)
+    decryptedusername = decrypt_data(login_request.username_or_email)
     user = authenticate_user(decryptedusername, decryptedpassword, db)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
