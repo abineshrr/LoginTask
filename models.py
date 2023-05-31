@@ -1,5 +1,5 @@
 from database import Base
-from sqlalchemy import Column, Integer, String, Date
+from sqlalchemy import Column, ForeignKey, Integer, String, Date
 
 class UserInput(Base):
     __tablename__ = 'userinput'
@@ -15,3 +15,19 @@ class UserInput(Base):
     email = Column(String, unique=True)
     phonenumber = Column(String)
     password = Column(String)
+
+
+class AccessToken(Base):
+    __tablename__ = "access_tokens"
+
+    id = Column(String, primary_key=True, index=True)
+    token = Column(String)
+
+
+
+class RefreshToken(Base):
+    __tablename__ = "refresh_tokens"
+
+    id = Column(String, primary_key=True, index=True)
+    token = Column(String)
+    accesstoken_id = Column(String, index=True)

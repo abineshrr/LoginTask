@@ -1,16 +1,22 @@
 from datetime import timedelta, datetime, date
 from typing_extensions import Annotated
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordRequestForm, OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer
 from fastapi import FastAPI, Depends, HTTPException, Form
 from pydantic import BaseModel, EmailStr, validator
 from sqlalchemy.orm import Session
 from starlette import status
 import models
-from models import UserInput
+from models import UserInput, AccessToken, RefreshToken
 from database import engine, SessionLocal
 from passlib.context import CryptContext
 from jose import jwt, JWTError
+
+from cryptography.fernet import Fernet
+from uuid import uuid4
+
+key = Fernet.generate_key()
+cipher_suite = Fernet(key)
 
 app = FastAPI()
 
@@ -31,7 +37,7 @@ ALGORITHM = 'HS256'
 models.Base.metadata.create_all(bind=engine)
 
 bcrypt_context = CryptContext(schemes='bcrypt', deprecated='auto')
-oauth2_bearer = OAuth2PasswordBearer(tokenUrl='token')
+oauth2_bearer = OAuth2PasswordBearer(tokenUrl='/token')
 
 
 def get_db():
@@ -51,11 +57,17 @@ def authenticate_user(username_or_email: str, password: str, db):
     return user
 
 
-def create_access_token(username: str, user_id: int, expires_delta: timedelta):
+def create_tokens(username: str, user_id: int, expires_delta: timedelta, refresh_delta: timedelta):
     encode = {'sub': username, 'id': user_id}
     expires = datetime.utcnow() + expires_delta
     encode.update({'exp': expires})
-    return jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
+    access_token = jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
+
+    refresh_expires = datetime.utcnow() + refresh_delta
+    encode.update({'exp': refresh_expires})
+    refresh_token = jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
+
+    return access_token, refresh_token
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):
@@ -97,6 +109,7 @@ class UserRequest(BaseModel):
 
 class Token(BaseModel):
     access_token: str
+    refresh_token: str
     token_type: str
     message: str
 
@@ -160,8 +173,27 @@ async def login_user(login_request: LoginRequest,
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
                             detail='Could not validate user.')
-    token = create_access_token(user.username, user.id, timedelta(minutes=20))
-    return {'access_token': token, 'token_type': 'bearer', 'message': 'Login successful!'}
+    access_token, refresh_token = create_tokens(user.username, user.id, timedelta(minutes=60), timedelta(days=7))
+
+    access_token_id = str(uuid4())
+    refresh_token_id = str(uuid4())
+    accesstoken = AccessToken(
+        id=access_token_id,
+        token=access_token
+    )
+    db.add(accesstoken)
+    db.commit()
+
+    refreshtoken = RefreshToken(
+        id=refresh_token_id,
+        token=refresh_token,
+        accesstoken_id=access_token_id
+    )
+    db.add(refreshtoken)
+    db.commit()
+
+    return {'access_token': access_token, 'refresh_token': refresh_token, 'token_type': 'bearer', 'message': 'Login successful!'}
+
 
 
 @app.put('/change_user_password')
@@ -179,8 +211,14 @@ async def change_user_password(change_password: ChangePassword, db: db_dependenc
 
 
 @app.get("/get_all_users")
-async def read_all(db: db_dependency):
+async def read_all(user: user_dependency, db: db_dependency):
+    if user is None:
+        raise HTTPException(status_code=401, detail='Authentication failed.')
     return db.query(UserInput).all()
+
+@app.get("/get_all_user")
+async def read_all(db: db_dependency):
+    return db.query(RefreshToken).all()
 
 
 @app.delete('/delete_user/{user_id}')
@@ -199,3 +237,21 @@ def get_users(page: int, per_page: int):
     start_index = (page - 1) * per_page
     end_index = start_index + per_page
     return user_list[start_index:end_index]
+
+
+def encrypt_password(password: str):
+    encrypted_password = cipher_suite.encrypt(password.encode())
+    return encrypted_password.decode()
+
+def decrypt_password(password: str):
+    decrypted_password = cipher_suite.decrypt(password.encode())
+    return decrypted_password.decode()
+
+@app.get('/encrypt/{plain_password}')
+def passwrd(plain_password: str):
+    return encrypt_password(plain_password)
+
+@app.get('/decrypt')
+def password(plain_password: str):
+    encrypted_paswrd = encrypt_password(plain_password)
+    return decrypt_password(encrypted_paswrd)
