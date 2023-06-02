@@ -3,7 +3,7 @@ from typing_extensions import Annotated
 from uuid import uuid4
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
-from fastapi import FastAPI, Depends, HTTPException, Form
+from fastapi import FastAPI, Depends, HTTPException, Form, Response
 from pydantic import BaseModel, EmailStr, validator
 from sqlalchemy.orm import Session
 from starlette import status
@@ -12,11 +12,12 @@ from models import UserInput, AccessToken, RefreshToken
 from database import engine, SessionLocal
 from passlib.context import CryptContext
 from jose import jwt, JWTError
-
+import bcrypt
 from Crypto.Util.Padding import unpad, pad
 from Crypto.Cipher import AES
 from cryptography.fernet import Fernet
-import base64
+from base64 import b64encode, b64decode
+import binascii
 
 app = FastAPI()
 
@@ -37,8 +38,8 @@ ALGORITHM = 'HS256'
 models.Base.metadata.create_all(bind=engine)
 
 bcrypt_context = CryptContext(schemes='bcrypt', deprecated='auto')
-oauth2_bearer = OAuth2PasswordBearer(tokenUrl='/token')
-
+oauth2_bearer = OAuth2PasswordBearer(tokenUrl='/login')
+blacklisted_tokens = set()
 
 def get_db():
     db = SessionLocal()
@@ -47,41 +48,33 @@ def get_db():
     finally:
         db.close()
 
-def encrypt_password(passwrd: str):
-    encryption_key = '22eeab4fe24a3d7fb40874b3a40c8271'
-    password = passwrd.encode()
+PASSWORD_SECRET_KEY = binascii.unhexlify("206c10c99d6246f784005331e384df6d13e2056b2d0037bef81de611efb62e03")
 
-    # Pad the password to make it a multiple of the block size
-    padded_password = pad(password, AES.block_size)
+def decrypt_data(encrypted_password: str):
+    cipher = AES.new(PASSWORD_SECRET_KEY, AES.MODE_ECB)
+    decrypted_bytes = cipher.decrypt(b64decode(encrypted_password.encode('utf-8')))
+    decrypted_password = unpad(decrypted_bytes, AES.block_size).decode('utf-8')
+    return decrypted_password
 
-    cipher = AES.new(encryption_key.encode(), AES.MODE_ECB)
-    encrypted_password = cipher.encrypt(padded_password)
-    encoded_password = base64.b64encode(encrypted_password).decode()
-    return encoded_password
+def hash_password(password: str):
+    hashed_password = bcrypt_context.hash(password)
+    return hashed_password
 
-# def decrypt_data(encrypted_data: str):
-#     encryption_key = "22eeab4fe24a3d7fb40874b3a40c8271"
-#     encrypted_data = base64.b64decode(encrypted_data)
-#     cipher = AES.new(encryption_key.encode(), AES.MODE_ECB)
-#     decrypted_data = cipher.decrypt(encrypted_data)
-#     decrypted_data = unpad(decrypted_data, AES.block_size).decode()
-#     return decrypted_data
+def encrypt_data(password: str):
+    cipher = AES.new(PASSWORD_SECRET_KEY, AES.MODE_ECB)
+    encrypted_bytes = cipher.encrypt(pad(password.encode('utf-8'), AES.block_size))
+    encrypted_password = b64encode(encrypted_bytes).decode('utf-8')
+    return encrypted_password
 
-def decrypt_data(encrypted_data: str):
-    encryption_key = base64.urlsafe_b64decode(b'Q4bOALstbrq0hdvukj5fdz8xR9V-J-w_yWuGYX8vCuU=')
-    cipher_suite = Fernet(encryption_key)
-    decrypted_data = cipher_suite.decrypt(encrypted_data.encode()).decode()
-    return decrypted_data
-
-def authenticate_user(username_or_email: str, password: str, db):
+def authenticate_user(username_or_email: str, password: str, db: Session):
     user = db.query(UserInput).filter((UserInput.username == username_or_email) | (UserInput.email == username_or_email)).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail='Could not validate user.')
-    if not bcrypt_context.verify(password, user.password):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail='Incorrect password.')
-    return user
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user.')
+    
+    if bcrypt_context.verify(password, user.password):
+        return user  # Return the user object
+    else:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid password.')
 
 
 def create_tokens(username: str, user_id: int, expires_delta: timedelta, refresh_delta: timedelta):
@@ -128,11 +121,11 @@ class UserRequest(BaseModel):
     password: str = Form(...)
     #confirm_password: str = Form(...)
 
-    @validator('password')
-    def password_must_be_strong(cls, value):
-        if not (8 <= len(value) <= 50):
-            raise ValueError('Password must be between 8 and 50 characters long')
-        return value
+    # @validator('password')
+    # def password_must_be_strong(cls, value):
+    #     if not (8 <= len(value) <= 50):
+    #         raise ValueError('Password must be between 8 and 50 characters long')
+    #     return value
 
 class Token(BaseModel):
     access_token: str
@@ -185,45 +178,42 @@ async def register_user(db: db_dependency,
         username=user_request.username,
         email=user_request.email,
         phonenumber=user_request.phonenumber,
-        password=bcrypt_context.hash(user_request.password)
+        #password=encrypt_data(decryptedpassword)
+        password= hash_password(user_request.password)
+        #password= bcrypt.hashpw(decryptedpassword.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
     )
     db.add(user_data)
     db.commit()
     db.refresh(user_data)
     return {"message": "User created successfully"}
 
-
-@app.post("/login", response_model=Token)
-async def login_user(login_request: LoginRequest,
-                     db: db_dependency):
+@app.post("/login")
+async def login_user(login_request: LoginRequest, db: db_dependency, response: Response):
     decryptedpassword = decrypt_data(login_request.password)
-    decryptedusername = decrypt_data(login_request.username_or_email)
-    user = authenticate_user(decryptedusername, decryptedpassword, db)
+    #hashed_password = hash_password(decryptedpassword)
+    user = authenticate_user(login_request.username_or_email, decryptedpassword, db)
+    #decryptedusername = decrypt_data(login_request.username_or_email)
+   
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
-                            detail='Could not validate user.')
-    access_token, refresh_token = create_tokens(user.username, user.id, timedelta(minutes=60), timedelta(days=7))
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user.')
 
+    access_token, refresh_token = create_tokens(user.username, user.id, timedelta(minutes=60), timedelta(days=7))
     access_token_id = str(uuid4())
     refresh_token_id = str(uuid4())
-    accesstoken = AccessToken(
-        id=access_token_id,
-        token=access_token
-    )
+    accesstoken = AccessToken(id=access_token_id, token=access_token)
     db.add(accesstoken)
-    db.commit()
-
-    refreshtoken = RefreshToken(
-        id=refresh_token_id,
-        token=refresh_token,
-        accesstoken_id=access_token_id
-    )
+    refreshtoken = RefreshToken(id=refresh_token_id, token=refresh_token, accesstoken_id=access_token_id)
     db.add(refreshtoken)
     db.commit()
 
-    return {'access_token': access_token, 'refresh_token': refresh_token, 'token_type': 'bearer', 'message': 'Login successful!'}
+    response.set_cookie(key="token", value=access_token, httponly=True)
 
-
+    return {
+        'access_token': access_token,
+        'refresh_token': refresh_token,
+        'token_type': 'bearer',
+        'message': 'Login successful!'
+    }
 
 @app.put('/change_user_password')
 async def change_user_password(change_password: ChangePassword, db: db_dependency):
@@ -267,12 +257,18 @@ def get_users(page: int, per_page: int):
     end_index = start_index + per_page
     return user_list[start_index:end_index]
 
-@app.get('/encrpyt')
-def ennrypt_password(password: str):
-    encrypted_password = encrypt_password(password)
+@app.get("/decrypt-password")
+def decryptt_password(encrypted_password: str):
+    decrypted_password = decrypt_data(encrypted_password)
+    return decrypted_password
+
+@app.get("/encrypt-password")
+def encryptt_password(password: str):
+    encrypted_password = encrypt_data(password)
     return encrypted_password
 
-@app.get('/decrpyt')
-def deecrypt_password(password: str):
-    decrypted_password = decrypt_data(password)
-    return decrypted_password
+@app.post("/logout")
+def logout(response: Response):
+    # Delete the "token" cookie
+    response.delete_cookie(key="token")
+    return {"message": "Logged out successfully"}
