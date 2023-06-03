@@ -3,12 +3,12 @@ from typing_extensions import Annotated
 from uuid import uuid4
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
-from fastapi import FastAPI, Depends, HTTPException, Form, Response
+from fastapi import FastAPI, Depends, HTTPException, Form, Request, Response
 from pydantic import BaseModel, EmailStr, validator
 from sqlalchemy.orm import Session
 from starlette import status
 import models
-from models import UserInput, AccessToken, RefreshToken
+from models import UserInput, Token
 from database import engine, SessionLocal
 from passlib.context import CryptContext
 from jose import jwt, JWTError
@@ -77,17 +77,20 @@ def authenticate_user(username_or_email: str, password: str, db: Session):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Invalid password.')
 
 
-def create_tokens(username: str, user_id: int, expires_delta: timedelta, refresh_delta: timedelta):
+def create_access_token(username: str, user_id: int, expires_delta: timedelta):
     encode = {'sub': username, 'id': user_id}
     expires = datetime.utcnow() + expires_delta
     encode.update({'exp': expires})
     access_token = jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
+    return access_token
 
+def create_refresh_token(username: str, user_id: int, refresh_delta: timedelta):
+    encode = {'sub': username, 'id': user_id}
     refresh_expires = datetime.utcnow() + refresh_delta
     encode.update({'exp': refresh_expires})
     refresh_token = jwt.encode(encode, SECRET_KEY, algorithm=ALGORITHM)
 
-    return access_token, refresh_token
+    return refresh_token, refresh_expires
 
 
 async def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):
@@ -127,7 +130,7 @@ class UserRequest(BaseModel):
     #         raise ValueError('Password must be between 8 and 50 characters long')
     #     return value
 
-class Token(BaseModel):
+class Tokn(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str
@@ -189,32 +192,58 @@ async def register_user(db: db_dependency,
 
 @app.post("/login")
 async def login_user(login_request: LoginRequest, db: db_dependency, response: Response):
+    if not db.query(UserInput).filter(UserInput.username == login_request.username_or_email).first():
+        raise HTTPException(status_code=400, detail="User doesn't exist")
     decryptedpassword = decrypt_data(login_request.password)
-    #hashed_password = hash_password(decryptedpassword)
+   
     user = authenticate_user(login_request.username_or_email, decryptedpassword, db)
-    #decryptedusername = decrypt_data(login_request.username_or_email)
    
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user.')
 
-    access_token, refresh_token = create_tokens(user.username, user.id, timedelta(minutes=60), timedelta(days=7))
-    access_token_id = str(uuid4())
-    refresh_token_id = str(uuid4())
-    accesstoken = AccessToken(id=access_token_id, token=access_token)
-    db.add(accesstoken)
-    refreshtoken = RefreshToken(id=refresh_token_id, token=refresh_token, accesstoken_id=access_token_id)
-    db.add(refreshtoken)
+    access_tokn = create_access_token(user.username, user.id, timedelta(minutes=60))
+    refresh_tokn, refresh_expiry = create_refresh_token(user.username, user.id, timedelta(days=7))
+    tokn = Token(access_token=access_tokn, refresh_token=refresh_tokn, refresh_token_expiration = refresh_expiry, user_id=user.id)
+    db.add(tokn)
     db.commit()
+   
+    tokens = Tokn(
+        access_token=access_tokn,
+        refresh_token=refresh_tokn,
+        token_type='bearer',
+        message='Login successful!'
+    )
+   
+    response.set_cookie(key="access_token", value=access_tokn, httponly=True)
+    response.set_cookie(key="refresh_token", value=refresh_tokn, httponly=True)
 
-    response.set_cookie(key="token", value=access_token, httponly=True)
+    return tokens
 
-    return {
-        'access_token': access_token,
-        'refresh_token': refresh_token,
-        'token_type': 'bearer',
-        'message': 'Login successful!'
-    }
-
+@app.post('/token')
+async def new_access_token(request: Request, response: Response, db: db_dependency):
+    refresh_tokn = request.cookies.get("refresh_token")
+    if not refresh_tokn:
+        raise HTTPException(status_code=400, detail="Token doesn't exist.")
+    token_db = db.query(Token).filter(Token.refresh_token == refresh_tokn).first()
+    if not token_db:
+        raise HTTPException(status_code=400, detail="Invalid token.")
+    if token_db.refresh_token_expiration < datetime.utcnow():
+        response.delete_cookie(key="access_token")
+        response.delete_cookie(key="refresh_token")
+        db.delete(token_db)
+        db.commit()
+        raise HTTPException(status_code=400, detail="Logged out due to token expiration")
+    else:
+        payload = jwt.decode(refresh_tokn, SECRET_KEY, algorithms=[ALGORITHM])
+        username: str = payload.get('sub')
+        user_id: int = payload.get('id')
+        generated_access_token = create_access_token(username, user_id, timedelta(minutes=60))
+        response.set_cookie(key="access_token", value=generated_access_token, httponly=True)
+        token_db.access_token = generated_access_token
+        db.commit()
+        return generated_access_token
+    
+    
 @app.put('/change_user_password')
 async def change_user_password(change_password: ChangePassword, db: db_dependency):
     user = db.query(UserInput).filter((UserInput.email == change_password.username_or_email) |
@@ -235,9 +264,9 @@ async def read_all(user: user_dependency, db: db_dependency):
         raise HTTPException(status_code=401, detail='Authentication failed.')
     return db.query(UserInput).all()
 
-@app.get("/get_all_user")
-async def read_all(db: db_dependency):
-    return db.query(RefreshToken).all()
+# @app.get("/get_all_user")
+# async def read_all(db: db_dependency):
+#     return db.query(RefreshToken).all()
 
 
 @app.delete('/delete_user/{user_id}')
@@ -268,7 +297,27 @@ def encryptt_password(password: str):
     return encrypted_password
 
 @app.post("/logout")
-def logout(response: Response):
-    # Delete the "token" cookie
-    response.delete_cookie(key="token")
+def logout(request: Request, response: Response, db: db_dependency):
+    refresh_tokn = request.cookies.get("refresh_token")
+    token_db = db.query(Token).filter(Token.refresh_token == refresh_tokn).first()
+    db.delete(token_db)
+    db.commit()
+    response.delete_cookie(key="access_token")
+    response.delete_cookie(key="refresh_token")
     return {"message": "Logged out successfully"}
+
+@app.post('/logout_all') 
+def logout_all_devices(request: Request, response: Response, db: db_dependency):
+    refresh_tokn = request.cookies.get("refresh_token")
+    token_db = db.query(Token).filter(Token.refresh_token == refresh_tokn).first()
+    user_id = token_db.user_id
+    all_token_db = db.query(Token).filter(Token.user_id == user_id).all()
+    for token in all_token_db:
+        db.delete(token)
+
+    db.commit()
+    response.delete_cookie(key="access_token")
+    response.delete_cookie(key="refresh_token")
+    return {"message": "Logged out from all devices."}
+
+

@@ -1,5 +1,6 @@
 from database import Base
-from sqlalchemy import Column, ForeignKey, Integer, String, Date
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Date
+from sqlalchemy.orm import relationship
 
 class UserInput(Base):
     __tablename__ = 'userinput'
@@ -16,18 +17,28 @@ class UserInput(Base):
     phonenumber = Column(String)
     password = Column(String)
 
+    tokens = relationship("Token", back_populates="user")
+class Token(Base):
+    __tablename__ = 'tokens'
 
-class AccessToken(Base):
-    __tablename__ = "access_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+    access_token = Column(String)
+    refresh_token = Column(String)
+    refresh_token_expiration = Column(DateTime)
+    user_id = Column(Integer, ForeignKey('userinput.id'))
 
-    id = Column(String, primary_key=True, index=True)
-    token = Column(String)
+    user = relationship("UserInput", back_populates="tokens")
+# class AccessToken(Base):
+#     __tablename__ = "access_tokens"
+
+#     id = Column(String, primary_key=True, index=True)
+#     token = Column(String)
 
 
 
-class RefreshToken(Base):
-    __tablename__ = "refresh_tokens"
+# class RefreshToken(Base):
+#     __tablename__ = "refresh_tokens"
 
-    id = Column(String, primary_key=True, index=True)
-    token = Column(String)
-    accesstoken_id = Column(String, index=True)
+#     id = Column(String, primary_key=True, index=True)
+#     token = Column(String)
+#     accesstoken_id = Column(String, index=True)
