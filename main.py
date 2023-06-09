@@ -54,7 +54,7 @@ def decrypt_data(encrypted_password: str):
         decrypted_bytes = cipher.decrypt(b64decode(encrypted_password.encode('utf-8')))
         decrypted_password = unpad(decrypted_bytes, AES.block_size).decode('utf-8')
         return decrypted_password
-    except binascii.Error as e:
+    except binascii.Error:
         raise HTTPException(status_code=400, detail="Incorrect padding error.")
 
 def hash_password(password: str):
