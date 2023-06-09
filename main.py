@@ -1,6 +1,6 @@
 from datetime import timedelta, datetime, date
 from typing_extensions import Annotated
-from uuid import uuid4
+
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from fastapi import FastAPI, Depends, HTTPException, Form, Request, Response
@@ -12,10 +12,10 @@ from models import UserInput, Token
 from database import engine, SessionLocal
 from passlib.context import CryptContext
 from jose import jwt, JWTError
-import bcrypt
+
 from Crypto.Util.Padding import unpad, pad
 from Crypto.Cipher import AES
-from cryptography.fernet import Fernet
+
 from base64 import b64encode, b64decode
 import binascii
 
@@ -27,10 +27,8 @@ app.add_middleware(
     allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=["*"]
 )
-
-session = SessionLocal()
 
 SECRET_KEY = '12nhd45et674r567tfg657yh8jdg75wcj32ki9865d656tf536kjl87tf654'
 ALGORITHM = 'HS256'
@@ -39,7 +37,7 @@ models.Base.metadata.create_all(bind=engine)
 
 bcrypt_context = CryptContext(schemes='bcrypt', deprecated='auto')
 oauth2_bearer = OAuth2PasswordBearer(tokenUrl='/login')
-blacklisted_tokens = set()
+# blacklisted_tokens = set()
 
 def get_db():
     db = SessionLocal()
@@ -51,10 +49,13 @@ def get_db():
 PASSWORD_SECRET_KEY = binascii.unhexlify("206c10c99d6246f784005331e384df6d13e2056b2d0037bef81de611efb62e03")
 
 def decrypt_data(encrypted_password: str):
-    cipher = AES.new(PASSWORD_SECRET_KEY, AES.MODE_ECB)
-    decrypted_bytes = cipher.decrypt(b64decode(encrypted_password.encode('utf-8')))
-    decrypted_password = unpad(decrypted_bytes, AES.block_size).decode('utf-8')
-    return decrypted_password
+    try:
+        cipher = AES.new(PASSWORD_SECRET_KEY, AES.MODE_ECB)
+        decrypted_bytes = cipher.decrypt(b64decode(encrypted_password.encode('utf-8')))
+        decrypted_password = unpad(decrypted_bytes, AES.block_size).decode('utf-8')
+        return decrypted_password
+    except binascii.Error as e:
+        raise HTTPException(status_code=400, detail="Incorrect padding error.")
 
 def hash_password(password: str):
     hashed_password = bcrypt_context.hash(password)
@@ -69,7 +70,7 @@ def encrypt_data(password: str):
 def authenticate_user(username_or_email: str, password: str, db: Session):
     user = db.query(UserInput).filter((UserInput.username == username_or_email) | (UserInput.email == username_or_email)).first()
     if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user.')
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='No user found.')
     
     if bcrypt_context.verify(password, user.password):
         return user  # Return the user object
@@ -192,32 +193,37 @@ async def register_user(db: db_dependency,
 
 @app.post("/login")
 async def login_user(login_request: LoginRequest, db: db_dependency, response: Response):
-    if not db.query(UserInput).filter(UserInput.username == login_request.username_or_email).first():
-        raise HTTPException(status_code=400, detail="User doesn't exist")
-    decryptedpassword = decrypt_data(login_request.password)
+    #if not db.query(UserInput).filter(UserInput.username == login_request.username_or_email).first():
+    #   raise HTTPException(status_code=400, detail="User doesn't exist")
+    try:
+        decryptedpassword = decrypt_data(login_request.password)
    
-    user = authenticate_user(login_request.username_or_email, decryptedpassword, db)
+        user = authenticate_user(login_request.username_or_email, decryptedpassword, db)
    
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user.')
+        if not user:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail='Could not validate user.')
 
-    access_tokn = create_access_token(user.username, user.id, timedelta(minutes=60))
-    refresh_tokn, refresh_expiry = create_refresh_token(user.username, user.id, timedelta(days=7))
-    tokn = Token(access_token=access_tokn, refresh_token=refresh_tokn, refresh_token_expiration = refresh_expiry, user_id=user.id)
-    db.add(tokn)
-    db.commit()
+        access_tokn = create_access_token(user.username, user.id, timedelta(minutes=60))
+        refresh_tokn, refresh_expiry = create_refresh_token(user.username, user.id, timedelta(days=7))
+        tokn = Token(access_token=access_tokn, refresh_token=refresh_tokn, refresh_token_expiration = refresh_expiry, user_id=user.id)
+        db.add(tokn)
+        db.commit()
    
-    tokens = Tokn(
+        tokens = Tokn(
         access_token=access_tokn,
         refresh_token=refresh_tokn,
         token_type='bearer',
         message='Login successful!'
-    )
+        )
    
-    response.set_cookie(key="access_token", value=access_tokn, httponly=True)
-    response.set_cookie(key="refresh_token", value=refresh_tokn, httponly=True)
+        response.set_cookie(key="access_token", value=access_tokn, httponly=True)
+        response.set_cookie(key="refresh_token", value=refresh_tokn, httponly=True)
 
-    return tokens
+        return tokens
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED,
+                            detail='Could not validate user.')
+    
 
 @app.post('/token')
 async def new_access_token(request: Request, response: Response, db: db_dependency):
@@ -276,7 +282,7 @@ async def delete_user(user_id:int, db:db_dependency):
     db.commit()
     return {'message': 'User deleted successfully'}
 
-
+session = SessionLocal()
 users = session.query(UserInput).all()
 user_list = [{"id": user.id, "first name": user.first_name, "last name": user.last_name, "reg no": user.reg_no, "age": user.age, "dob": user.dob, "gender": user.gender, "username": user.username, "email": user.email, "phone number": user.phonenumber} for user in users]
 
@@ -309,6 +315,8 @@ def logout(request: Request, response: Response, db: db_dependency):
 @app.post('/logout_all') 
 def logout_all_devices(request: Request, response: Response, db: db_dependency):
     refresh_tokn = request.cookies.get("refresh_token")
+    if not refresh_tokn:
+        raise HTTPException(status_code=400, detail="Haven't logged in.")
     token_db = db.query(Token).filter(Token.refresh_token == refresh_tokn).first()
     user_id = token_db.user_id
     all_token_db = db.query(Token).filter(Token.user_id == user_id).all()
@@ -319,5 +327,3 @@ def logout_all_devices(request: Request, response: Response, db: db_dependency):
     response.delete_cookie(key="access_token")
     response.delete_cookie(key="refresh_token")
     return {"message": "Logged out from all devices."}
-
-
